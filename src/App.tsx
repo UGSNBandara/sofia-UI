@@ -1,5 +1,5 @@
 import { Canvas, useFrame } from '@react-three/fiber'
-import { useGLTF, PerspectiveCamera } from '@react-three/drei'
+import { useGLTF, PerspectiveCamera, useTexture } from '@react-three/drei'
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { SkeletonUtils, FBXLoader } from 'three-stdlib'
@@ -150,6 +150,16 @@ function Model({ fbxPath }: { fbxPath: string }) {
   )
 }
 
+function BackLogo() {
+  const texture = useTexture('/backLogo.png')
+  return (
+    <mesh position={[0, 2.5, -2]}>
+      <planeGeometry args={[2.5, 0.5]} />
+      <meshStandardMaterial map={texture} transparent emissive={'#7957ffff'} emissiveIntensity={0.4} />
+    </mesh>
+  )
+}
+
 export default function App() {
   const animations = [
     { name: 'Chill', path: '/chill.fbx' },
@@ -168,9 +178,45 @@ export default function App() {
         <ambientLight intensity={1.2} />
         <directionalLight position={[5, 8, 5]} intensity={1.5} />
         <Suspense fallback={null}>
+          <BackLogo />
+        </Suspense>
+        <Suspense fallback={null}>
           <Model fbxPath={animations[currentAnim].path} />
         </Suspense>
       </Canvas>
+      {/* Thin 2D footer edge overlay for bottom front accent */}
+      <div
+        style={{
+          position: 'absolute',
+          left: 0,
+          right: 0,
+          bottom: 0,
+          height: '10px',
+          pointerEvents: 'none',
+        }}
+      >
+        <div
+          style={{
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            bottom: 0,
+            height: '8px',
+            background: '#000000',
+          }}
+        />
+        <div
+          style={{
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            bottom: '8px',
+            height: '2px',
+            background: '#7957ffff',
+            boxShadow: '0 0 6px #7957ffff, 0 0 12px #7957ffff',
+          }}
+        />
+      </div>
       <div style={{ position: 'absolute', top: 10, left: 10 }}>
         {animations.map((anim, i) => (
           <button
