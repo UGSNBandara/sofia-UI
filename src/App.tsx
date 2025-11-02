@@ -1,5 +1,9 @@
 import { Canvas, useFrame } from '@react-three/fiber'
-import { useGLTF, PerspectiveCamera, useTexture } from '@react-three/drei'
+import { useGLTF, PerspectiveCamera } from '@react-three/drei'
+import BackLogo from './components/BackLogo'
+import NeonMenuTile, { type MenuItem } from './components/NeonMenuTile'
+import ChatPanel, { type ChatMessage } from './components/ChatPanel'
+import ChatModeToggle from './components/ChatModeToggle'
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { SkeletonUtils, FBXLoader } from 'three-stdlib'
@@ -150,15 +154,10 @@ function Model({ fbxPath }: { fbxPath: string }) {
   )
 }
 
-function BackLogo() {
-  const texture = useTexture('/backLogo.png')
-  return (
-    <mesh position={[0, 2.5, -2]}>
-      <planeGeometry args={[2.5, 0.5]} />
-      <meshStandardMaterial map={texture} transparent emissive={'#7957ffff'} emissiveIntensity={0.4} />
-    </mesh>
-  )
-}
+// BackLogo moved to components/BackLogo
+
+// NeonMenuTile moved to components/NeonMenuTile
+// ChatPanel moved to components/ChatPanel
 
 export default function App() {
   const animations = [
@@ -169,6 +168,42 @@ export default function App() {
     { name: 'Listen', path: '/listn.fbx' },
   ]
   const [currentAnim, setCurrentAnim] = useState(0)
+  const [menuVisible, setMenuVisible] = useState(false)
+  const [menuItem, setMenuItem] = useState<MenuItem | null>(null)
+  const [menuSeq, setMenuSeq] = useState<MenuItem[] | null>(null)
+  const [menuIdx, setMenuIdx] = useState(0)
+  const [menuAutoMs, setMenuAutoMs] = useState(2000)
+  const [chatMode, setChatMode] = useState<'text' | 'speech'>('text')
+  const [chatDraft, setChatDraft] = useState('')
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
+    { id: 'm1', role: 'assistant', text: 'Hi! Welcome to Sofia — what would you like today?' },
+    { id: 'm2', role: 'user', text: 'Show me something minty.' },
+    { id: 'm3', role: 'assistant', text: 'Mint Swirl Cone is a top pick. Want to try that?' },
+    { id: 'm4', role: 'user', text: 'Sounds good!' },
+  ])
+
+  const startMenuSequence = (items: MenuItem[], autoMs = 2000) => {
+    if (!items || items.length === 0) return
+    setMenuSeq(items)
+    setMenuIdx(0)
+    setMenuItem(items[0])
+    setMenuAutoMs(autoMs)
+    setMenuVisible(true)
+  }
+
+  const sendChat = (text: string) => {
+    setChatMessages((prev) => [
+      ...prev,
+      { id: `u-${Date.now()}`, role: 'user', text },
+    ])
+    setChatDraft('')
+    setTimeout(() => {
+      setChatMessages((prev) => [
+        ...prev,
+        { id: `a-${Date.now()}`, role: 'assistant', text: 'Great choice! Anything else?' },
+      ])
+    }, 700)
+  }
 
   return (
     <div style={{ height: '100vh', width: '100vw' }}>
@@ -184,6 +219,38 @@ export default function App() {
           <Model fbxPath={animations[currentAnim].path} />
         </Suspense>
       </Canvas>
+      <ChatPanel
+        messages={chatMessages}
+        mode={chatMode}
+        draft={chatDraft}
+        onDraftChange={setChatDraft}
+        onSend={sendChat}
+      />
+      <ChatModeToggle
+        mode={chatMode}
+        onToggleMode={setChatMode}
+      />
+      <NeonMenuTile
+        item={menuItem}
+        visible={menuVisible}
+        autoHideMs={menuAutoMs}
+        onHide={() => {
+          if (menuSeq && menuIdx < menuSeq.length - 1) {
+            const nextIndex = menuIdx + 1
+            const nextItem = menuSeq[nextIndex]
+            setMenuVisible(false)
+            setTimeout(() => {
+              setMenuIdx(nextIndex)
+              setMenuItem(nextItem)
+              setMenuVisible(true)
+            }, 420)
+          } else {
+            setMenuVisible(false)
+            setMenuSeq(null)
+            setMenuIdx(0)
+          }
+        }}
+      />
       {/* Thin 2D footer edge overlay for bottom front accent */}
       <div
         style={{
@@ -212,8 +279,8 @@ export default function App() {
             right: 0,
             bottom: '8px',
             height: '2px',
-            background: '#7957ffff',
-            boxShadow: '0 0 6px #7957ffff, 0 0 12px #7957ffff',
+            background: '#B39DFF',
+            boxShadow: '0 0 6px #B39DFF, 0 0 12px #B39DFF',
           }}
         />
       </div>
@@ -234,6 +301,34 @@ export default function App() {
             {anim.name}
           </button>
         ))}
+        <button
+          onClick={() =>
+            startMenuSequence([
+              {
+                title: 'Chocolate Cone',
+                price: '$3.99',
+                description: 'Rich cocoa with fudge swirl',
+                imageUrl: '/IceCreams/chocolate.jpg',
+              },
+              {
+                title: 'Vanilla Classic',
+                price: '$3.49',
+                description: 'Creamy vanilla bean',
+                imageUrl: '/IceCreams/vanila.jpg',
+              },
+            ], 2000)
+          }
+          style={{
+            marginLeft: 8,
+            backgroundColor: 'black',
+            color: '#B39DFF',
+            border: '1px solid #B39DFF',
+            padding: '5px 10px',
+            cursor: 'pointer',
+          }}
+        >
+          Show Menu
+        </button>
       </div>
     </div>
   )
