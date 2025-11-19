@@ -5,6 +5,7 @@ import AvatarModel from './components/AvatarModel'
 import BackLogo from './components/BackLogo'
 import ChatPanel, { type ChatMessage } from './components/ChatPanel'
 import SpeechInput from './components/SpeechInput'
+// Frontend TTS removed; relying solely on backend audio_base64
 
 const ANIMATIONS = [
   { name: 'Chill', path: '/chill.fbx' },
@@ -14,8 +15,11 @@ const ANIMATIONS = [
 
 const INITIAL_MESSAGES: ChatMessage[] = []
 
-const AGENT_ENDPOINT = 'http://localhost:8000/agent/'
+const AGENT_ENDPOINT = 'http://127.0.0.1:8000/agent/'
 const BG_MUSIC_PATH = '/background-music.mp3'
+
+// Phoneme to mouth openness mapping (IPA from Piper)
+// Removed phoneme maps and Piper/Web Speech fallback.
 
 export default function App() {
   const [currentAnim, setCurrentAnim] = useState(0) // 0=Chill, 1=Idle
@@ -31,6 +35,7 @@ export default function App() {
   const [isSpeaking, setIsSpeaking] = useState(false)
   const [mouthOpen, setMouthOpen] = useState(0)
   const [sessionId, setSessionId] = useState<string | null>(null)
+  // No frontend voices; backend supplies audio.
 
   const pendingAudioRef = useRef<HTMLAudioElement | null>(null)
   const base64ResolveRef = useRef<(() => void) | null>(null)
@@ -39,6 +44,7 @@ export default function App() {
   const analyserRef = useRef<AnalyserNode | null>(null)
   const rafRef = useRef<number | null>(null)
   const bowResolveRef = useRef<(() => void) | null>(null)
+  // Removed speech timeout scheduling (no frontend phoneme timeline).
 
   const appendMessage = useCallback((message: ChatMessage) => {
     setChatMessages((prev) => [...prev, message])
@@ -62,7 +68,7 @@ export default function App() {
     base64ResolveRef.current?.()
     base64ResolveRef.current = null
 
-    // No browser speech synthesis fallback; we rely solely on backend audio.
+    // Frontend speech synthesis removed.
 
     setIsSpeaking(false)
     setMouthOpen(0)
@@ -100,7 +106,7 @@ export default function App() {
               sum += v * v
             }
             const rms = Math.sqrt(sum / data.length)
-            const open = Math.min(1, Math.max(0, (rms - 0.02) * 8))
+            const open = Math.min(1, Math.max(0, (rms - 0.02) * 4))
             prev = prev * 0.7 + open * 0.3
             setMouthOpen(prev)
             rafRef.current = requestAnimationFrame(tick)
@@ -161,7 +167,7 @@ export default function App() {
               sum += v * v
             }
             const rms = Math.sqrt(sum / data.length)
-            const open = Math.min(1, Math.max(0, (rms - 0.02) * 8))
+            const open = Math.min(1, Math.max(0, (rms - 0.02) * 4))
             prev = prev * 0.7 + open * 0.3
             setMouthOpen(prev)
             rafRef.current = requestAnimationFrame(tick)
@@ -193,12 +199,12 @@ export default function App() {
         return
       }
       setIsSpeaking(true)
-      setMouthOpen(0.5) // slight open while analyser warms up
+      setMouthOpen(0.4)
       try {
         if (base64) {
           await playTtsFromBase64(base64)
         } else {
-          console.warn('No audio_base64 returned for assistant; showing text only.')
+          console.warn('No backend audio provided; displaying text only.')
         }
       } catch (error) {
         console.error('Assistant audio error', error)
@@ -209,6 +215,8 @@ export default function App() {
     },
     [stopSpeaking, playTtsFromBase64, bumpAutoListen, voiceModeEnabled]
   )
+
+  // Removed local Piper synthesis; backend will return audio_base64.
 
   const getOrCreateUserId = () => {
     const k = 'sofia_user_id'
@@ -275,6 +283,8 @@ export default function App() {
     try { localStorage.removeItem('sofia_session_id') } catch {}
   }, [])
 
+  // Removed voice loading effect (no frontend TTS).
+
   // Try autoplay background music in chill mode
   useEffect(() => {
     const el = bgmRef.current
@@ -313,7 +323,7 @@ export default function App() {
     }
     setCurrentAnim(1) // Idle
     setFreezeBody(true) // keep idle pose static; only mouth moves
-    fadeBgm(0.2, 1500)
+    fadeBgm(0.1, 1500)
     // restart session
     try { localStorage.removeItem('sofia_session_id') } catch {}
     setSessionId(null)

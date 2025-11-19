@@ -86,7 +86,7 @@ export default function SpeechInput({
       }
     })()
     return () => { cancelled = true }
-  }, [autoStartToken, supported, disabled, listening, onBeforeStart])
+  }, [autoStartToken, supported, disabled, listening, onBeforeStart, autoStartEnabled])
 
   const toggle = async () => {
     if (!supported) return
