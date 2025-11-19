@@ -15,7 +15,7 @@ const ANIMATIONS = [
 
 const INITIAL_MESSAGES: ChatMessage[] = []
 
-const AGENT_ENDPOINT = 'http://127.0.0.1:8000/agent/'
+const AGENT_ENDPOINT: string = (import.meta as any)?.env?.VITE_AGENT_ENDPOINT || 'http://127.0.0.1:8000/agent/'
 const BG_MUSIC_PATH = '/background-music.mp3'
 
 // Phoneme to mouth openness mapping (IPA from Piper)
