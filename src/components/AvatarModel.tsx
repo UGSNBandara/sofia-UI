@@ -1,6 +1,6 @@
 import { useFrame } from '@react-three/fiber'
 import { useGLTF } from '@react-three/drei'
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { SkeletonUtils, FBXLoader } from 'three-stdlib'
 

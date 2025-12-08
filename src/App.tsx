@@ -11,11 +11,13 @@ const ANIMATIONS = [
   { name: 'Chill', path: '/chill.fbx' },
   { name: 'Idle', path: '/Idle.fbx' },
   { name: 'Bow', path: '/bow.fbx' },
+  { name: 'Break', path: '/Dwarf.fbx' },
 ]
 
 const INITIAL_MESSAGES: ChatMessage[] = []
 
-const AGENT_ENDPOINT = 'http://127.0.0.1:8000/agent/'
+const AGENT_ENDPOINT: string = (import.meta as any)?.env?.VITE_AGENT_ENDPOINT || 'https://icecreamemultiagent-production.up.railway.app/agent/'
+const AGENT_TEXT_ENDPOINT: string = (import.meta as any)?.env?.VITE_AGENT_TEXT_ENDPOINT || (AGENT_ENDPOINT.endsWith('/agent/') ? AGENT_ENDPOINT + 'text' : (AGENT_ENDPOINT.replace(/\/?$/, '') + '/text'))
 const BG_MUSIC_PATH = '/background-music.mp3'
 
 // Phoneme to mouth openness mapping (IPA from Piper)
@@ -35,7 +37,11 @@ export default function App() {
   const [isSpeaking, setIsSpeaking] = useState(false)
   const [mouthOpen, setMouthOpen] = useState(0)
   const [sessionId, setSessionId] = useState<string | null>(null)
-  // No frontend voices; backend supplies audio.
+  const [localTtsOnly, setLocalTtsOnly] = useState(false)
+  // Web Speech voices for browser TTS
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([])
+  const webSpeechUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null)
+  const [preferredVoiceName, setPreferredVoiceName] = useState<string | null>('Microsoft Emily Online (Natural) - English (Ireland)')
 
   const pendingAudioRef = useRef<HTMLAudioElement | null>(null)
   const base64ResolveRef = useRef<(() => void) | null>(null)
@@ -44,6 +50,9 @@ export default function App() {
   const analyserRef = useRef<AnalyserNode | null>(null)
   const rafRef = useRef<number | null>(null)
   const bowResolveRef = useRef<(() => void) | null>(null)
+  const inactivityTimeoutRef = useRef<number | null>(null)
+  const [breakActive, setBreakActive] = useState(false)
+  const breakActiveRef = useRef(false) // Sync ref for immediate checks
   // Removed speech timeout scheduling (no frontend phoneme timeline).
 
   const appendMessage = useCallback((message: ChatMessage) => {
@@ -52,6 +61,29 @@ export default function App() {
 
   const bumpAutoListen = useCallback(() => {
     setAutoListenToken((prev) => prev + 1)
+  }, [])
+
+  // Start/restart inactivity timer (only in conversation mode, not during Break)
+  const startInactivityTimer = useCallback(() => {
+    // Check current state synchronously via ref
+    if (breakActiveRef.current) {
+      console.log('[Timer] Not starting - in Break mode')
+      return
+    }
+    if (inactivityTimeoutRef.current) { window.clearTimeout(inactivityTimeoutRef.current); inactivityTimeoutRef.current = null }
+    console.log('[Timer] Starting 10s inactivity timer')
+    inactivityTimeoutRef.current = window.setTimeout(() => {
+      console.log('[Timer] 10s elapsed - triggering Break')
+      const breakIdx = ANIMATIONS.findIndex(a => a.name === 'Break')
+      if (breakIdx !== -1) {
+        setCurrentAnim(breakIdx)
+        setFreezeBody(false)
+        setBreakActive(true)
+        breakActiveRef.current = true
+        // Stop timer when entering Break
+        if (inactivityTimeoutRef.current) { window.clearTimeout(inactivityTimeoutRef.current); inactivityTimeoutRef.current = null }
+      }
+    }, 10000)
   }, [])
 
   const stopSpeaking = useCallback(() => {
@@ -68,11 +100,126 @@ export default function App() {
     base64ResolveRef.current?.()
     base64ResolveRef.current = null
 
-    // Frontend speech synthesis removed.
+    // Stop Web Speech utterance if active
+    try {
+      if (webSpeechUtteranceRef.current) {
+        window.speechSynthesis.cancel()
+        webSpeechUtteranceRef.current = null
+      }
+    } catch {}
 
     setIsSpeaking(false)
     setMouthOpen(0)
   }, [])
+
+  // Load Web Speech voices and keep list updated
+  useEffect(() => {
+    const update = () => {
+      try {
+        const v = window.speechSynthesis.getVoices()
+        setVoices(v || [])
+      } catch {}
+    }
+    update()
+    try { window.speechSynthesis.onvoiceschanged = update } catch {}
+    return () => { try { window.speechSynthesis.onvoiceschanged = null as any } catch {} }
+  }, [])
+
+  const ensureVoicesReady = useCallback(async (maxMs = 5000) => {
+    if (voices && voices.length > 0) return
+    const start = performance.now()
+    try {
+      const dummy = new SpeechSynthesisUtterance(' ')
+      dummy.volume = 0
+      window.speechSynthesis.cancel()
+      window.speechSynthesis.speak(dummy)
+    } catch {}
+    await new Promise<void>((resolve) => {
+      const check = () => {
+        const list = window.speechSynthesis.getVoices()
+        if (list && list.length > 0) { setVoices(list); resolve(); return }
+        if (performance.now() - start >= maxMs) { resolve(); return }
+        setTimeout(check, 120)
+      }
+      check()
+    })
+  }, [voices])
+
+  const pickFemaleVoice = useCallback((vlist?: SpeechSynthesisVoice[]): SpeechSynthesisVoice | null => {
+    const voicesList = vlist || voices
+    if (!voicesList.length) return null
+    if (preferredVoiceName) {
+      const exact = voicesList.find(v => v.name === preferredVoiceName)
+      if (exact) return exact
+    }
+    const whitelist = [
+      'Microsoft Emily Online (Natural) - English (Ireland)',
+      'Microsoft Aria - English (United States)',
+      'Microsoft Zira - English (United States)',
+      'Google US English Female',
+      'Google UK English Female'
+    ]
+    for (const name of whitelist) {
+      const found = voicesList.find(v => v.name === name)
+      if (found) return found
+    }
+    const english = voicesList.filter(v => /en[-_]/i.test(v.lang) || /English/i.test(v.lang || ''))
+    const femaleHint = /(female|zira|aria|emily|jessa|samantha|victoria|hazel|jenny|emma)/i
+    const hinted = english.filter(v => femaleHint.test(v.name))
+    if (hinted.length) return hinted[0]
+    return english[0] || voicesList[0]
+  }, [voices, preferredVoiceName])
+
+  const speakWithWebSpeech = useCallback(async (text: string, onStart?: () => void) => {
+    return new Promise<void>(async (resolve) => {
+      try {
+        await ensureVoicesReady(5000)
+        const utter = new SpeechSynthesisUtterance(text)
+        const liveVoices = window.speechSynthesis.getVoices() || []
+        const voice = pickFemaleVoice(liveVoices)
+        if (!voice) { resolve(); return }
+        utter.voice = voice
+        const RATE = parseFloat((((import.meta as any)?.env?.VITE_TTS_RATE) as string) || '1.12')
+        const PITCH = parseFloat((((import.meta as any)?.env?.VITE_TTS_PITCH) as string) || '1.03')
+        utter.rate = isFinite(RATE) ? RATE : 1.12
+        utter.pitch = isFinite(PITCH) ? PITCH : 1.03
+        utter.volume = 1.0
+
+        // Boundary events for basic lip sync pulses
+        let pulseTimeout: number | null = null
+        const pulseDuration = Math.max(50, 80 / utter.rate) // Shorter pulses at faster rates
+        const pulse = () => {
+          setMouthOpen(0.7)
+          pulseTimeout = window.setTimeout(() => setMouthOpen(0.2), pulseDuration)
+        }
+        utter.onboundary = (ev: SpeechSynthesisEvent) => {
+          if (ev.name === 'word') pulse()
+        }
+
+        utter.onstart = () => {
+          setMouthOpen(0.4)  // Set initial mouth position when speech actually starts
+          onStart?.()
+        }
+
+        utter.onend = () => {
+          if (pulseTimeout) { window.clearTimeout(pulseTimeout); pulseTimeout = null }
+          setMouthOpen(0)
+          resolve()
+        }
+        utter.onerror = () => {
+          if (pulseTimeout) { window.clearTimeout(pulseTimeout); pulseTimeout = null }
+          setMouthOpen(0)
+          resolve()
+        }
+        webSpeechUtteranceRef.current = utter
+        window.speechSynthesis.cancel()
+        window.speechSynthesis.speak(utter)
+        const approxWords = Math.max(1, text.trim().split(/\s+/).length)
+        const maxDurationMs = Math.min(120000, Math.max(8000, approxWords * 650))
+        window.setTimeout(() => resolve(), maxDurationMs)
+      } catch { resolve() }
+    })
+  }, [ensureVoicesReady, pickFemaleVoice])
 
   const playTtsFromBase64 = useCallback((base64: string) => {
     return new Promise<void>((resolve) => {
@@ -192,28 +339,35 @@ export default function App() {
   }, [])
 
   const playAssistantAudio = useCallback(
-    async (text?: string, base64?: string) => {
+    async (text?: string, base64?: string, onStart?: () => void) => {
       stopSpeaking()
       if (!text && !base64) {
         if (voiceModeEnabled) bumpAutoListen()
         return
       }
       setIsSpeaking(true)
-      setMouthOpen(0.4)
+      // Mouth opening is now handled when TTS actually starts
       try {
-        if (base64) {
+        // Default to browser TTS for responses
+        if (text) {
+          await speakWithWebSpeech(text, onStart)
+        } else if (base64) {
+          onStart?.() // Base64 starts immediately
           await playTtsFromBase64(base64)
         } else {
-          console.warn('No backend audio provided; displaying text only.')
+          console.warn('No text or audio provided for assistant response.')
         }
       } catch (error) {
         console.error('Assistant audio error', error)
       } finally {
         stopSpeaking()
         if (voiceModeEnabled) bumpAutoListen()
+        // After assistant finishes speaking, start timer to wait for user input
+        console.log('[Timer] Assistant finished speaking, starting timer')
+        startInactivityTimer()
       }
     },
-    [stopSpeaking, playTtsFromBase64, bumpAutoListen, voiceModeEnabled]
+    [stopSpeaking, playTtsFromBase64, speakWithWebSpeech, bumpAutoListen, voiceModeEnabled, startInactivityTimer]
   )
 
   // Removed local Piper synthesis; backend will return audio_base64.
@@ -228,9 +382,10 @@ export default function App() {
     return id
   }
 
-  const fetchAgentResponse = useCallback(async (text: string, opts?: { restart?: boolean }) => {
+  const fetchAgentResponse = useCallback(async (text: string, opts?: { restart?: boolean, mode?: 'text-only' | 'tts' }) => {
     try {
-      const response = await fetch(AGENT_ENDPOINT, {
+      const endpoint = opts?.mode === 'text-only' ? AGENT_TEXT_ENDPOINT : AGENT_ENDPOINT
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -261,15 +416,32 @@ export default function App() {
     if (!trimmed) return
     setChatDraft('')
     appendMessage({ id: `u-${Date.now()}`, role: 'user', text: trimmed })
+    // User input received: stop waiting timer and exit Break if active
+    console.log('[Timer] User input received, clearing timer')
+    if (inactivityTimeoutRef.current) { window.clearTimeout(inactivityTimeoutRef.current); inactivityTimeoutRef.current = null }
+    if (breakActive) {
+      const idleIdx = ANIMATIONS.findIndex(a => a.name === 'Idle')
+      if (idleIdx !== -1) setCurrentAnim(idleIdx)
+      setFreezeBody(true)
+      setBreakActive(false)
+      breakActiveRef.current = false
+    }
     setIsProcessing(true)
     try {
-      const response = await fetchAgentResponse(trimmed)
-      appendMessage({ id: `a-${Date.now()}`, role: 'assistant', text: response.text })
-      await playAssistantAudio(response.text, response.ttsBase64)
+      if (localTtsOnly) {
+        // Test mode: do not call backend; echo text and speak via browser TTS
+        const speakText = trimmed
+        const assistantMessage: ChatMessage = { id: `a-${Date.now()}`, role: 'assistant', text: speakText }
+        await playAssistantAudio(speakText, undefined, () => appendMessage(assistantMessage))
+      } else {
+        const response = await fetchAgentResponse(trimmed, { mode: 'text-only' })
+        const assistantMessage: ChatMessage = { id: `a-${Date.now()}`, role: 'assistant', text: response.text }
+        await playAssistantAudio(response.text, response.ttsBase64, () => appendMessage(assistantMessage))
+      }
     } finally {
       setIsProcessing(false)
     }
-  }, [appendMessage, fetchAgentResponse, playAssistantAudio])
+  }, [appendMessage, fetchAgentResponse, playAssistantAudio, localTtsOnly])
 
   const handleTranscript = useCallback(
     (transcript: string) => {
@@ -278,10 +450,10 @@ export default function App() {
     [handleSend]
   )
 
-  // Clear any stored session on refresh as requested
+  // Sync breakActive ref with state
   useEffect(() => {
-    try { localStorage.removeItem('sofia_session_id') } catch {}
-  }, [])
+    breakActiveRef.current = breakActive
+  }, [breakActive])
 
   // Removed voice loading effect (no frontend TTS).
 
@@ -333,7 +505,39 @@ export default function App() {
     await playAudioUrlWithLipSync('/welcome.mp3')
     stopSpeaking()
     setWelcomeDone(true)
-  }, [fadeBgm, fetchAgentResponse, appendMessage, playAssistantAudio])
+    // After welcome, start waiting for user input
+    startInactivityTimer()
+  }, [fadeBgm, fetchAgentResponse, appendMessage, playAssistantAudio, startInactivityTimer])
+
+  const returnToConversation = useCallback(async (opts?: { newSession?: boolean }) => {
+    if (inactivityTimeoutRef.current) { window.clearTimeout(inactivityTimeoutRef.current); inactivityTimeoutRef.current = null }
+    try { stopSpeaking() } catch {}
+    if (opts?.newSession) {
+      try { localStorage.removeItem('sofia_session_id') } catch {}
+      setSessionId(null)
+      setChatMessages([])
+    }
+    // Play Bow once, freeze immediately at start
+    const bowIdx = ANIMATIONS.findIndex(a => a.name === 'Bow')
+    if (bowIdx !== -1) {
+      const p = new Promise<void>((resolve) => { bowResolveRef.current = resolve })
+      setCurrentAnim(bowIdx)
+      setFreezeBody(true)
+      setMouthOpen(0)
+      try { await p } catch {}
+    }
+    // After Bow completes, go to Idle and freeze for conversation
+    const idleIdx = ANIMATIONS.findIndex(a => a.name === 'Idle')
+    if (idleIdx !== -1) setCurrentAnim(idleIdx)
+    setFreezeBody(true)
+    setBreakActive(false)
+    breakActiveRef.current = false
+    fadeBgm(0.1, 600)
+    // Start fresh inactivity timer when returning to conversation (with delay to ensure state updates)
+    await new Promise(resolve => setTimeout(resolve, 100))
+    console.log('[Timer] Returned from Break, starting timer')
+    startInactivityTimer()
+  }, [stopSpeaking, fadeBgm, startInactivityTimer])
 
   // Removed menu sequence logic per new simplified UI
 
@@ -363,8 +567,31 @@ export default function App() {
           />
         </Suspense>
       </Canvas>
-      {welcomeDone && (
+      {welcomeDone && !breakActive && (
         <>
+          {/* Voice controls: select voice and toggle local TTS test mode */}
+          <div style={{ position: 'absolute', top: 16, right: 16, zIndex: 20, background: 'rgba(0,0,0,0.5)', padding: '8px 12px', borderRadius: 8 }}>
+            <label style={{ color: '#fff', marginRight: 8 }}>Voice:</label>
+            <select
+              value={preferredVoiceName || ''}
+              onChange={(e) => setPreferredVoiceName(e.target.value || null)}
+              style={{ marginRight: 12 }}
+            >
+              <option value="">Auto (female)</option>
+              {voices.map(v => (
+                <option key={v.name} value={v.name}>{v.name}</option>
+              ))}
+            </select>
+            <label style={{ color: '#fff', marginRight: 6 }}>
+              <input
+                type="checkbox"
+                checked={localTtsOnly}
+                onChange={(e) => setLocalTtsOnly(e.target.checked)}
+                style={{ marginRight: 6 }}
+              />
+              Local TTS test (no backend)
+            </label>
+          </div>
           <ChatPanel
             messages={chatMessages}
             mode={'text'}
@@ -377,6 +604,15 @@ export default function App() {
             disabled={isProcessing || isSpeaking}
             onBeforeStart={() => {
               if (isSpeaking) stopSpeaking()
+              // User starts speaking: stop waiting timer and exit Break if active
+              if (inactivityTimeoutRef.current) { window.clearTimeout(inactivityTimeoutRef.current); inactivityTimeoutRef.current = null }
+              if (breakActive) {
+                const idleIdx = ANIMATIONS.findIndex(a => a.name === 'Idle')
+                if (idleIdx !== -1) setCurrentAnim(idleIdx)
+                setFreezeBody(true)
+                setBreakActive(false)
+                breakActiveRef.current = false
+              }
             }}
             autoStartToken={autoListenToken}
             autoStartEnabled={voiceModeEnabled && !isSpeaking && !isProcessing}
@@ -384,6 +620,24 @@ export default function App() {
             onManualStop={() => setVoiceModeEnabled(false)}
           />
         </>
+      )}
+      {welcomeDone && breakActive && (
+        <div style={{ position: 'absolute', inset: 0, zIndex: 25, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: 'rgba(0,0,0,0.6)', padding: '16px 20px', borderRadius: 12, color: '#fff', display: 'flex', gap: 12 }}>
+            <button
+              onClick={() => returnToConversation()}
+              style={{ backgroundColor: '#6AD58B', border: 'none', padding: '10px 18px', borderRadius: 8, color: '#0b2d17', fontWeight: 600, cursor: 'pointer' }}
+            >
+              Continue
+            </button>
+            <button
+              onClick={() => returnToConversation({ newSession: true })}
+              style={{ backgroundColor: '#B39DFF', border: 'none', padding: '10px 18px', borderRadius: 8, color: '#0f0f1a', fontWeight: 600, cursor: 'pointer' }}
+            >
+              New Session
+            </button>
+          </div>
+        </div>
       )}
       {!chatStarted && (
         <div style={{ position: 'absolute', bottom: 48, left: '50%', transform: 'translateX(-50%)', zIndex: 20 }}>
