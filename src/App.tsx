@@ -695,22 +695,11 @@ export default function App() {
       {/* Order completed overlay - hides chat and shows order with cancel/new buttons */}
       {summary && welcomeDone && summary.kind === 'order' && summary.order && (
         <div style={{ position: 'absolute', inset: 0, zIndex: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.7)' }}>
-          <div style={{ width: 360, maxHeight: '80vh', overflowY: 'auto', background: 'linear-gradient(135deg, rgba(106, 213, 139, 0.2) 0%, rgba(20, 20, 30, 0.95) 100%)', backdropFilter: 'blur(12px)', color: '#fff', borderRadius: 16, padding: 24, boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(106, 213, 139, 0.3)', border: '1px solid rgba(106, 213, 139, 0.4)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, paddingBottom: 14, borderBottom: '1px solid rgba(106, 213, 139, 0.3)' }}>
-              <div style={{ fontSize: 28, filter: 'drop-shadow(0 2px 6px rgba(106, 213, 139, 0.6))' }}>✅</div>
-              <div>
-                <div style={{ fontWeight: 700, fontSize: 20, color: '#6AD58B' }}>Order Confirmed!</div>
-                <div style={{ fontSize: 13, opacity: 0.8, marginTop: 4 }}>Order #{summary.order.id}</div>
-              </div>
-            </div>
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', fontSize: 14 }}>
-                <span style={{ opacity: 0.8 }}>Customer</span>
-                <span style={{ fontWeight: 600 }}>{summary.order.customer_name}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', fontSize: 14, borderBottom: '1px solid rgba(106, 213, 139, 0.2)' }}>
-                <span style={{ opacity: 0.8 }}>Status</span>
-                <span style={{ fontWeight: 600, color: summary.order.status === 'done' ? '#6AD58B' : '#B39DFF', textTransform: 'capitalize' }}>{summary.order.status}</span>
+          <div style={{ width: 360, maxHeight: '80vh', overflowY: 'auto', background: 'linear-gradient(135deg, rgba(16, 191, 249, 0.2) 0%, rgba(20, 20, 30, 0.95) 100%)', backdropFilter: 'blur(12px)', color: '#fff', borderRadius: 16, padding: 24, boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(16, 191, 249, 0.3)', border: '1px solid rgba(16, 191, 249, 0.4)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, paddingBottom: 14, borderBottom: '1px solid rgba(16, 191, 249, 0.3)' }}>
+              <div style={{ fontWeight: 700, fontSize: 20, color: '#10bff9' }}>
+                Order Id : {summary.order.id}<br />
+                Customer : {summary.order.customer_name}
               </div>
             </div>
             <div style={{ marginTop: 16, marginBottom: 14 }}>
@@ -719,21 +708,19 @@ export default function App() {
                 <div key={`${it.code}-${it.name}-${idx}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, padding: '10px 12px', background: 'rgba(255, 255, 255, 0.05)', borderRadius: 8 }}>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontWeight: 600, fontSize: 14 }}>{it.name}</div>
-                    <div style={{ fontSize: 12, opacity: 0.6, marginTop: 2 }}>Qty: {it.qty} × ${it.price.toFixed(2)}</div>
+                    <div style={{ fontSize: 13, opacity: 0.8, marginTop: 4 }}>
+                      Quantity: {it.qty}<br />
+                      Unit Price: Rs {it.price.toFixed(2)}
+                    </div>
                   </div>
-                  <div style={{ fontWeight: 700, fontSize: 15, color: '#6AD58B' }}>${it.amount.toFixed(2)}</div>
+                  <div style={{ fontWeight: 700, fontSize: 15, color: '#10bff9' }}>Rs {it.amount.toFixed(2)}</div>
                 </div>
               ))}
             </div>
-            <div style={{ borderTop: '1px solid rgba(106, 213, 139, 0.3)', marginTop: 14, paddingTop: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ borderTop: '1px solid rgba(16, 191, 249, 0.3)', marginTop: 14, paddingTop: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontWeight: 700, fontSize: 17 }}>Total</span>
-              <span style={{ fontWeight: 700, fontSize: 22, color: '#6AD58B' }}>${summary.order.total.toFixed(2)}</span>
+              <span style={{ fontWeight: 700, fontSize: 22, color: '#10bff9' }}>Rs {summary.order.total.toFixed(2)}</span>
             </div>
-            {summary.order.created_at && (
-              <div style={{ marginTop: 16, fontSize: 12, opacity: 0.7, textAlign: 'center' }}>
-                Placed: {new Date(summary.order.created_at).toLocaleString()}
-              </div>
-            )}
             <div style={{ marginTop: 24, display: 'flex', gap: 12 }}>
               <button
                 onClick={() => {
@@ -756,7 +743,7 @@ export default function App() {
                   setSummary(null)
                   window.location.reload()
                 }}
-                style={{ flex: 1, backgroundColor: '#6AD58B', border: 'none', padding: '12px', borderRadius: 10, color: '#0b2d17', fontWeight: 700, cursor: 'pointer', fontSize: 14, transition: 'all 0.2s ease', boxShadow: '0 2px 8px rgba(106, 213, 139, 0.4)' }}
+                style={{ flex: 1, backgroundColor: '#10bff9', border: 'none', padding: '12px', borderRadius: 10, color: '#0b2d17', fontWeight: 700, cursor: 'pointer', fontSize: 14, transition: 'all 0.2s ease', boxShadow: '0 2px 8px rgba(16, 191, 249, 0.4)' }}
                 onMouseOver={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
                 onMouseOut={(e) => e.currentTarget.style.transform = 'translateY(0)'}
               >
@@ -824,7 +811,7 @@ export default function App() {
           />
         </>
       )}
-      {welcomeDone && breakActive && (
+      {welcomeDone && breakActive && (!summary || summary.kind !== 'order') && (
         <div style={{ position: 'absolute', inset: 0, zIndex: 25, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div style={{ background: 'rgba(0,0,0,0.6)', padding: '16px 20px', borderRadius: 12, color: '#fff', display: 'flex', gap: 12 }}>
             <button
