@@ -7,12 +7,13 @@ import { SkeletonUtils, FBXLoader } from 'three-stdlib'
 type Props = {
   fbxPath: string
   mouthOpen?: number
+  smile?: number
   loop?: 'loop' | 'once'
   onFinished?: () => void
   frozen?: boolean
 }
 
-export default function AvatarModel({ fbxPath, mouthOpen = 0, loop = 'loop', onFinished, frozen = false }: Props) {
+export default function AvatarModel({ fbxPath, mouthOpen = 0, smile = 0, loop = 'loop', onFinished, frozen = false }: Props) {
   const groupRef = useRef<THREE.Group>(null)
   const mixerRef = useRef<THREE.AnimationMixer | null>(null)
   const fbxMixerRef = useRef<THREE.AnimationMixer | null>(null)
@@ -23,6 +24,7 @@ export default function AvatarModel({ fbxPath, mouthOpen = 0, loop = 'loop', onF
   const baseMouthRotRef = useRef(0)
   const loggedMouthRef = useRef(false)
   const mouthMorphTargetsRef = useRef<Array<{ mesh: THREE.SkinnedMesh; index: number }>>([])
+  const smileMorphTargetsRef = useRef<Array<{ mesh: THREE.SkinnedMesh; index: number }>>([])
   const appliedFrozenPoseRef = useRef(false)
 
   const { scene } = useGLTF('/avatar.glb')
@@ -84,10 +86,12 @@ export default function AvatarModel({ fbxPath, mouthOpen = 0, loop = 'loop', onF
 
   useEffect(() => {
     mouthMorphTargetsRef.current = []
+    smileMorphTargetsRef.current = []
     mouthBoneRef.current = null
     if (!scene) return
 
     const morphNamePattern = /jaw|mouth.*open|viseme_aa|viseme_o|vrc\.??v_aa|openmouth|lips?part/i
+    const smilePattern = /mouth.*smile|smile/i
     scene.traverse((o) => {
       const m = o as THREE.SkinnedMesh
       if ((m as any).isSkinnedMesh && m.morphTargetDictionary && m.morphTargetInfluences) {
@@ -95,6 +99,8 @@ export default function AvatarModel({ fbxPath, mouthOpen = 0, loop = 'loop', onF
         for (const key of Object.keys(dict)) {
           if (morphNamePattern.test(key)) {
             mouthMorphTargetsRef.current!.push({ mesh: m, index: dict[key] })
+          } else if (smilePattern.test(key)) {
+            smileMorphTargetsRef.current!.push({ mesh: m, index: dict[key] })
           }
         }
       }
@@ -222,6 +228,15 @@ export default function AvatarModel({ fbxPath, mouthOpen = 0, loop = 'loop', onF
       }
     } else if (mouthBoneRef.current) {
       mouthBoneRef.current.rotation.x = baseMouthRotRef.current + clamp(mouthOpen, 0, 1) * 0.4
+    }
+    // Control smile morph targets
+    if (smileMorphTargetsRef.current && smileMorphTargetsRef.current.length) {
+      const smileValue = clamp(smile, 0, 1)
+      for (const { mesh, index } of smileMorphTargetsRef.current) {
+        if (mesh.morphTargetInfluences && mesh.morphTargetInfluences[index] !== undefined) {
+          mesh.morphTargetInfluences[index] = smileValue
+        }
+      }
     }
     if (!loggedRef.current && mode) {
       loggedRef.current = true

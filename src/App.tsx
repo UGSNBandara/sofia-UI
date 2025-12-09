@@ -36,7 +36,9 @@ export default function App() {
   const [isProcessing, setIsProcessing] = useState(false)
   const [isSpeaking, setIsSpeaking] = useState(false)
   const [mouthOpen, setMouthOpen] = useState(0)
+  const [smile, setSmile] = useState(0)
   const [sessionId, setSessionId] = useState<string | null>(null)
+  const [cart, setCart] = useState<{ items: Array<{ code: number; name: string; qty: number; price: number; amount: number }>; subtotal: number } | null>(null)
   const [localTtsOnly, setLocalTtsOnly] = useState(false)
   // Web Speech voices for browser TTS
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([])
@@ -53,7 +55,38 @@ export default function App() {
   const inactivityTimeoutRef = useRef<number | null>(null)
   const [breakActive, setBreakActive] = useState(false)
   const breakActiveRef = useRef(false) // Sync ref for immediate checks
+  const isSpeakingRef = useRef(false) // Track if assistant is speaking
   // Removed speech timeout scheduling (no frontend phoneme timeline).
+
+  // Cart fetching based on session id
+  const fetchCart = useCallback(async (sid?: string | null) => {
+    const effectiveSession = typeof sid === 'string' ? sid : sessionId
+    console.log('[Cart] fetchCart called with sid:', sid, 'effectiveSession:', effectiveSession)
+    if (!effectiveSession) return
+    try {
+      const base = ((import.meta as any)?.env?.VITE_AGENT_BASE) || (AGENT_ENDPOINT.replace(/\/agent\/?$/, ''))
+      const url = `${base.replace(/\/?$/, '')}/cart/${effectiveSession}`
+      console.log('[Cart] Fetching from:', url)
+      const resp = await fetch(url, { method: 'GET' })
+      console.log('[Cart] Response status:', resp.status)
+      if (!resp.ok) throw new Error('Cart request failed')
+      const data = await resp.json()
+      console.log('[Cart] Raw response data:', data)
+      const items = Array.isArray(data?.cart?.cart) ? data.cart.cart : []
+      const subtotal = typeof data?.cart?.subtotal === 'number' ? data.cart.subtotal : 0
+      console.log('[Cart] Parsed items:', items, 'subtotal:', subtotal)
+      setCart({ items, subtotal })
+      console.log('[Cart] State updated with:', { items, subtotal })
+    } catch (err) {
+      console.warn('[Cart] Fetch failed:', err)
+    }
+  }, [sessionId])
+
+  // Refresh cart whenever sessionId changes (and exists)
+  useEffect(() => {
+    console.log('[Cart] useEffect triggered, sessionId:', sessionId)
+    if (sessionId) { void fetchCart(sessionId) }
+  }, [sessionId, fetchCart])
 
   const appendMessage = useCallback((message: ChatMessage) => {
     setChatMessages((prev) => [...prev, message])
@@ -63,15 +96,19 @@ export default function App() {
     setAutoListenToken((prev) => prev + 1)
   }, [])
 
-  // Start/restart inactivity timer (only in conversation mode, not during Break)
-  const startInactivityTimer = useCallback(() => {
+  // Reset inactivity timer (clears and restarts, only in conversation mode, not during Break or speaking)
+  const resetInactivityTimer = useCallback(() => {
     // Check current state synchronously via ref
     if (breakActiveRef.current) {
-      console.log('[Timer] Not starting - in Break mode')
+      console.log('[Timer] Not resetting - in Break mode')
+      return
+    }
+    if (isSpeakingRef.current) {
+      console.log('[Timer] Not resetting - assistant is speaking')
       return
     }
     if (inactivityTimeoutRef.current) { window.clearTimeout(inactivityTimeoutRef.current); inactivityTimeoutRef.current = null }
-    console.log('[Timer] Starting 10s inactivity timer')
+    console.log('[Timer] Resetting 10s inactivity timer')
     inactivityTimeoutRef.current = window.setTimeout(() => {
       console.log('[Timer] 10s elapsed - triggering Break')
       const breakIdx = ANIMATIONS.findIndex(a => a.name === 'Break')
@@ -84,6 +121,15 @@ export default function App() {
         if (inactivityTimeoutRef.current) { window.clearTimeout(inactivityTimeoutRef.current); inactivityTimeoutRef.current = null }
       }
     }, 10000)
+  }, [])
+
+  // Explicitly stop/clear inactivity timer (used when assistant starts speaking or certain user actions)
+  const stopInactivityTimer = useCallback(() => {
+    if (inactivityTimeoutRef.current) {
+      console.log('[Timer] Clearing inactivity timer')
+      window.clearTimeout(inactivityTimeoutRef.current)
+      inactivityTimeoutRef.current = null
+    }
   }, [])
 
   const stopSpeaking = useCallback(() => {
@@ -124,6 +170,23 @@ export default function App() {
     try { window.speechSynthesis.onvoiceschanged = update } catch {}
     return () => { try { window.speechSynthesis.onvoiceschanged = null as any } catch {} }
   }, [])
+
+  // Control smile based on conversation state
+  useEffect(() => {
+    const inConversation = chatStarted && welcomeDone && !breakActive
+    const isBowing = currentAnim === ANIMATIONS.findIndex(a => a.name === 'Bow')
+    let smileValue = 0
+
+    if (breakActive) {
+      smileValue = 0.1 // Low smile in break mode
+    } else if (isBowing) {
+      smileValue = 0.15 // Low smile when bowing
+    } else if (inConversation) {
+      smileValue = isSpeaking ? 0.15 : 0.3 // Lower smile when speaking, normal when listening
+    }
+
+    setSmile(smileValue)
+  }, [chatStarted, welcomeDone, breakActive, isSpeaking, currentAnim])
 
   const ensureVoicesReady = useCallback(async (maxMs = 5000) => {
     if (voices && voices.length > 0) return
@@ -345,7 +408,10 @@ export default function App() {
         if (voiceModeEnabled) bumpAutoListen()
         return
       }
+      // When assistant is about to speak, ensure inactivity timer is stopped
+      stopInactivityTimer()
       setIsSpeaking(true)
+      isSpeakingRef.current = true
       // Mouth opening is now handled when TTS actually starts
       try {
         // Default to browser TTS for responses
@@ -360,14 +426,17 @@ export default function App() {
       } catch (error) {
         console.error('Assistant audio error', error)
       } finally {
+        isSpeakingRef.current = false
         stopSpeaking()
         if (voiceModeEnabled) bumpAutoListen()
         // After assistant finishes speaking, start timer to wait for user input
         console.log('[Timer] Assistant finished speaking, starting timer')
-        startInactivityTimer()
+        resetInactivityTimer()
+        // Background: refresh cart at end of response
+        void fetchCart()
       }
     },
-    [stopSpeaking, playTtsFromBase64, speakWithWebSpeech, bumpAutoListen, voiceModeEnabled, startInactivityTimer]
+    [stopSpeaking, playTtsFromBase64, speakWithWebSpeech, bumpAutoListen, voiceModeEnabled, resetInactivityTimer, stopInactivityTimer, fetchCart]
   )
 
   // Removed local Piper synthesis; backend will return audio_base64.
@@ -404,21 +473,23 @@ export default function App() {
       const newSessionId = typeof payload?.session_id === 'string' ? payload.session_id : null
       setSessionId(newSessionId)
       if (newSessionId) localStorage.setItem('sofia_session_id', newSessionId)
+      // Background: refresh cart for this session
+      void fetchCart(newSessionId)
       return { text: respText, ttsBase64: audioBase64 }
     } catch (error) {
       console.error('Agent fetch failed', error)
       return { text: 'Sofia is having trouble right now. Please try again shortly.' }
     }
-  }, [sessionId])
+  }, [sessionId, fetchCart])
 
   const handleSend = useCallback(async (input: string) => {
     const trimmed = input.trim()
     if (!trimmed) return
     setChatDraft('')
     appendMessage({ id: `u-${Date.now()}`, role: 'user', text: trimmed })
-    // User input received: stop waiting timer and exit Break if active
+    // User input received: stop timer and exit Break if active
     console.log('[Timer] User input received, clearing timer')
-    if (inactivityTimeoutRef.current) { window.clearTimeout(inactivityTimeoutRef.current); inactivityTimeoutRef.current = null }
+    stopInactivityTimer()
     if (breakActive) {
       const idleIdx = ANIMATIONS.findIndex(a => a.name === 'Idle')
       if (idleIdx !== -1) setCurrentAnim(idleIdx)
@@ -441,7 +512,7 @@ export default function App() {
     } finally {
       setIsProcessing(false)
     }
-  }, [appendMessage, fetchAgentResponse, playAssistantAudio, localTtsOnly])
+  }, [appendMessage, fetchAgentResponse, playAssistantAudio, localTtsOnly, resetInactivityTimer, breakActive])
 
   const handleTranscript = useCallback(
     (transcript: string) => {
@@ -505,9 +576,9 @@ export default function App() {
     await playAudioUrlWithLipSync('/welcome.mp3')
     stopSpeaking()
     setWelcomeDone(true)
-    // After welcome, start waiting for user input
-    startInactivityTimer()
-  }, [fadeBgm, fetchAgentResponse, appendMessage, playAssistantAudio, startInactivityTimer])
+    // After welcome, reset timer to wait for user input
+    resetInactivityTimer()
+  }, [fadeBgm, fetchAgentResponse, appendMessage, playAssistantAudio, resetInactivityTimer])
 
   const returnToConversation = useCallback(async (opts?: { newSession?: boolean }) => {
     if (inactivityTimeoutRef.current) { window.clearTimeout(inactivityTimeoutRef.current); inactivityTimeoutRef.current = null }
@@ -535,9 +606,9 @@ export default function App() {
     fadeBgm(0.1, 600)
     // Start fresh inactivity timer when returning to conversation (with delay to ensure state updates)
     await new Promise(resolve => setTimeout(resolve, 100))
-    console.log('[Timer] Returned from Break, starting timer')
-    startInactivityTimer()
-  }, [stopSpeaking, fadeBgm, startInactivityTimer])
+    console.log('[Timer] Returned from Break, resetting timer')
+    resetInactivityTimer()
+  }, [stopSpeaking, fadeBgm, resetInactivityTimer])
 
   // Removed menu sequence logic per new simplified UI
 
@@ -556,6 +627,7 @@ export default function App() {
           <AvatarModel
             fbxPath={ANIMATIONS[currentAnim].path}
             mouthOpen={mouthOpen}
+            smile={smile}
             loop={ANIMATIONS[currentAnim].name === 'Bow' ? 'once' : 'loop'}
             frozen={freezeBody && ANIMATIONS[currentAnim].name !== 'Bow'}
             onFinished={() => {
@@ -567,6 +639,26 @@ export default function App() {
           />
         </Suspense>
       </Canvas>
+      {/* Cart UI overlay */}
+      {cart && welcomeDone && (
+        <div style={{ position: 'absolute', left: 20, bottom: 20, width: 280, maxHeight: 240, overflowY: 'auto', background: 'rgba(0,0,0,0.5)', color: '#fff', borderRadius: 8, padding: 10, zIndex: 20 }}>
+          <div style={{ fontWeight: 700, marginBottom: 8 }}>Cart</div>
+          {cart.items.length === 0 ? (
+            <div style={{ opacity: 0.8 }}>Empty</div>
+          ) : (
+            cart.items.map((it) => (
+              <div key={`${it.code}-${it.name}`} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                <span>{it.name} × {it.qty}</span>
+                <span>{Math.round(it.amount)}</span>
+              </div>
+            ))
+          )}
+          <div style={{ borderTop: '1px solid rgba(255,255,255,0.2)', marginTop: 8, paddingTop: 8, display: 'flex', justifyContent: 'space-between' }}>
+            <span>Subtotal</span>
+            <span>{Math.round(cart.subtotal)}</span>
+          </div>
+        </div>
+      )}
       {welcomeDone && !breakActive && (
         <>
           {/* Voice controls: select voice and toggle local TTS test mode */}
@@ -596,7 +688,10 @@ export default function App() {
             messages={chatMessages}
             mode={'text'}
             draft={chatDraft}
-            onDraftChange={setChatDraft}
+            onDraftChange={(v) => {
+              setChatDraft(v)
+              resetInactivityTimer()
+            }}
             onSend={handleSend}
           />
           <SpeechInput
@@ -604,8 +699,9 @@ export default function App() {
             disabled={isProcessing || isSpeaking}
             onBeforeStart={() => {
               if (isSpeaking) stopSpeaking()
-              // User starts speaking: stop waiting timer and exit Break if active
-              if (inactivityTimeoutRef.current) { window.clearTimeout(inactivityTimeoutRef.current); inactivityTimeoutRef.current = null }
+              // User starts speaking: reset timer and exit Break if active
+              console.log('[Timer] Voice recording started, resetting timer')
+              resetInactivityTimer()
               if (breakActive) {
                 const idleIdx = ANIMATIONS.findIndex(a => a.name === 'Idle')
                 if (idleIdx !== -1) setCurrentAnim(idleIdx)
@@ -625,13 +721,21 @@ export default function App() {
         <div style={{ position: 'absolute', inset: 0, zIndex: 25, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div style={{ background: 'rgba(0,0,0,0.6)', padding: '16px 20px', borderRadius: 12, color: '#fff', display: 'flex', gap: 12 }}>
             <button
-              onClick={() => returnToConversation()}
+              onClick={() => {
+                console.log('[Timer] Continue button clicked')
+                resetInactivityTimer()
+                returnToConversation()
+              }}
               style={{ backgroundColor: '#6AD58B', border: 'none', padding: '10px 18px', borderRadius: 8, color: '#0b2d17', fontWeight: 600, cursor: 'pointer' }}
             >
               Continue
             </button>
             <button
-              onClick={() => returnToConversation({ newSession: true })}
+              onClick={() => {
+                console.log('[Timer] New Session button clicked')
+                resetInactivityTimer()
+                returnToConversation({ newSession: true })
+              }}
               style={{ backgroundColor: '#B39DFF', border: 'none', padding: '10px 18px', borderRadius: 8, color: '#0f0f1a', fontWeight: 600, cursor: 'pointer' }}
             >
               New Session
