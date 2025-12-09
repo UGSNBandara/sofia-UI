@@ -662,19 +662,33 @@ export default function App() {
           />
         </Suspense>
       </Canvas>
-      {/* Cart UI overlay */}
+      {/* Cart UI overlay - positioned above chat with matching width and gap */}
       {summary && welcomeDone && summary.kind === 'cart' && summary.cart && summary.cart.items.length > 0 && (
-        <div style={{ position: 'absolute', left: 20, bottom: 20, width: 280, maxHeight: 240, overflowY: 'auto', background: 'rgba(0,0,0,0.5)', color: '#fff', borderRadius: 8, padding: 10, zIndex: 20 }}>
+        <div style={{ 
+          position: 'absolute', 
+          right: 40, /* Adjusted position */
+          bottom: 700, /* Adjusted position above chat */
+          width: 440, /* Matches chat panel width for alignment */
+          maxHeight: 240, 
+          overflowY: 'auto', 
+          background: 'rgba(0,0,0,0.5)', 
+          color: '#fff', /* Default text color white */
+          fontSize: 18, /* Matches chat message font size */
+          borderRadius: 8, 
+          border: '1px solid #10bff9ff', /* New blue border */
+          padding: 10, 
+          zIndex: 20 
+        }}>
           <div style={{ fontWeight: 700, marginBottom: 8 }}>Cart</div>
           {summary.cart.items.map((it) => (
             <div key={`${it.code}-${it.name}`} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
               <span>{it.name} × {it.qty}</span>
-              <span>{Math.round(it.amount)}</span>
+              <span style={{ color: '#10bff9ff' }}>{Math.round(it.amount)}</span> {/* Price in new blue */}
             </div>
           ))}
-          <div style={{ borderTop: '1px solid rgba(255,255,255,0.2)', marginTop: 8, paddingTop: 8, display: 'flex', justifyContent: 'space-between' }}>
+          <div style={{ borderTop: '1px solid #10bff9ff', marginTop: 8, paddingTop: 8, display: 'flex', justifyContent: 'space-between' }}>
             <span>Subtotal</span>
-            <span>{Math.round(summary.cart.subtotal)}</span>
+            <span style={{ color: '#10bff9ff' }}>{Math.round(summary.cart.subtotal)}</span> {/* Subtotal in new blue */}
           </div>
         </div>
       )}
