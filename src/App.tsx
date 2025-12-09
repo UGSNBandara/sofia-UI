@@ -38,7 +38,11 @@ export default function App() {
   const [mouthOpen, setMouthOpen] = useState(0)
   const [smile, setSmile] = useState(0)
   const [sessionId, setSessionId] = useState<string | null>(null)
-  const [cart, setCart] = useState<{ items: Array<{ code: number; name: string; qty: number; price: number; amount: number }>; subtotal: number } | null>(null)
+  const [summary, setSummary] = useState<{ 
+    kind: 'cart' | 'order' | 'empty'; 
+    cart?: { items: Array<{ code: number; name: string; qty: number; price: number; amount: number }>; subtotal: number }; 
+    order?: { id: string; customer_name: string; items: Array<{ code: number; name: string; qty: number; price: number; amount: number }>; total: number; status: string; created_at: string } 
+  } | null>(null)
   const [localTtsOnly, setLocalTtsOnly] = useState(false)
   // Web Speech voices for browser TTS
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([])
@@ -68,35 +72,44 @@ export default function App() {
     }
   }, [])
 
-  // Cart fetching based on session id
-  const fetchCart = useCallback(async (sid?: string | null) => {
+  // Fetch cart/order summary based on session id
+  const fetchSummary = useCallback(async (sid?: string | null) => {
     const effectiveSession = typeof sid === 'string' ? sid : sessionId
-    console.log('[Cart] fetchCart called with sid:', sid, 'effectiveSession:', effectiveSession)
+    console.log('[Summary] fetchSummary called with sid:', sid, 'effectiveSession:', effectiveSession)
     if (!effectiveSession) return
     try {
       const base = ((import.meta as any)?.env?.VITE_AGENT_BASE) || (AGENT_ENDPOINT.replace(/\/agent\/?$/, ''))
-      const url = `${base.replace(/\/?$/, '')}/cart/${effectiveSession}`
-      console.log('[Cart] Fetching from:', url)
+      const url = `${base.replace(/\/?$/, '')}/session/${effectiveSession}/summary`
+      console.log('[Summary] Fetching from:', url)
       const resp = await fetch(url, { method: 'GET' })
-      console.log('[Cart] Response status:', resp.status)
-      if (!resp.ok) throw new Error('Cart request failed')
+      console.log('[Summary] Response status:', resp.status)
+      if (!resp.ok) throw new Error('Summary request failed')
       const data = await resp.json()
-      console.log('[Cart] Raw response data:', data)
-      const items = Array.isArray(data?.cart?.cart) ? data.cart.cart : []
-      const subtotal = typeof data?.cart?.subtotal === 'number' ? data.cart.subtotal : 0
-      console.log('[Cart] Parsed items:', items, 'subtotal:', subtotal)
-      setCart({ items, subtotal })
-      console.log('[Cart] State updated with:', { items, subtotal })
+      console.log('[Summary] Raw response data:', data)
+      
+      const kind = data?.kind || 'empty'
+      if (kind === 'order' && data.order) {
+        console.log('[Summary] Order detected:', data.order)
+        setSummary({ kind: 'order', order: data.order })
+      } else if (kind === 'cart' && data.cart) {
+        const items = Array.isArray(data.cart.cart) ? data.cart.cart : []
+        const subtotal = typeof data.cart.subtotal === 'number' ? data.cart.subtotal : 0
+        console.log('[Summary] Cart detected, items:', items, 'subtotal:', subtotal)
+        setSummary({ kind: 'cart', cart: { items, subtotal } })
+      } else {
+        console.log('[Summary] Empty state')
+        setSummary({ kind: 'empty' })
+      }
     } catch (err) {
-      console.warn('[Cart] Fetch failed:', err)
+      console.warn('[Summary] Fetch failed:', err)
     }
   }, [sessionId])
 
-  // Refresh cart whenever sessionId changes (and exists)
+  // Refresh summary whenever sessionId changes (and exists)
   useEffect(() => {
-    console.log('[Cart] useEffect triggered, sessionId:', sessionId)
-    if (sessionId) { void fetchCart(sessionId) }
-  }, [sessionId, fetchCart])
+    console.log('[Summary] useEffect triggered, sessionId:', sessionId)
+    if (sessionId) { void fetchSummary(sessionId) }
+  }, [sessionId, fetchSummary])
 
   const appendMessage = useCallback((message: ChatMessage) => {
     setChatMessages((prev) => [...prev, message])
@@ -442,11 +455,11 @@ export default function App() {
         // After assistant finishes speaking, start timer to wait for user input
         console.log('[Timer] Assistant finished speaking, starting timer')
         resetInactivityTimer()
-        // Background: refresh cart at end of response
-        void fetchCart()
+        // Background: refresh summary at end of response
+        void fetchSummary()
       }
     },
-    [stopSpeaking, playTtsFromBase64, speakWithWebSpeech, bumpAutoListen, voiceModeEnabled, resetInactivityTimer, stopInactivityTimer, fetchCart]
+    [stopSpeaking, playTtsFromBase64, speakWithWebSpeech, bumpAutoListen, voiceModeEnabled, resetInactivityTimer, stopInactivityTimer, fetchSummary]
   )
 
   // Removed local Piper synthesis; backend will return audio_base64.
@@ -483,14 +496,14 @@ export default function App() {
       const newSessionId = typeof payload?.session_id === 'string' ? payload.session_id : null
       setSessionId(newSessionId)
       if (newSessionId) localStorage.setItem('sofia_session_id', newSessionId)
-      // Background: refresh cart for this session
-      void fetchCart(newSessionId)
+      // Background: refresh summary for this session
+      void fetchSummary(newSessionId)
       return { text: respText, ttsBase64: audioBase64 }
     } catch (error) {
       console.error('Agent fetch failed', error)
       return { text: 'Sofia is having trouble right now. Please try again shortly.' }
     }
-  }, [sessionId, fetchCart])
+  }, [sessionId, fetchSummary])
 
   const handleSend = useCallback(async (input: string) => {
     const trimmed = input.trim()
@@ -650,26 +663,96 @@ export default function App() {
         </Suspense>
       </Canvas>
       {/* Cart UI overlay */}
-      {cart && welcomeDone && (
+      {summary && welcomeDone && summary.kind === 'cart' && summary.cart && summary.cart.items.length > 0 && (
         <div style={{ position: 'absolute', left: 20, bottom: 20, width: 280, maxHeight: 240, overflowY: 'auto', background: 'rgba(0,0,0,0.5)', color: '#fff', borderRadius: 8, padding: 10, zIndex: 20 }}>
           <div style={{ fontWeight: 700, marginBottom: 8 }}>Cart</div>
-          {cart.items.length === 0 ? (
-            <div style={{ opacity: 0.8 }}>Empty</div>
-          ) : (
-            cart.items.map((it) => (
-              <div key={`${it.code}-${it.name}`} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                <span>{it.name} × {it.qty}</span>
-                <span>{Math.round(it.amount)}</span>
-              </div>
-            ))
-          )}
+          {summary.cart.items.map((it) => (
+            <div key={`${it.code}-${it.name}`} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span>{it.name} × {it.qty}</span>
+              <span>{Math.round(it.amount)}</span>
+            </div>
+          ))}
           <div style={{ borderTop: '1px solid rgba(255,255,255,0.2)', marginTop: 8, paddingTop: 8, display: 'flex', justifyContent: 'space-between' }}>
             <span>Subtotal</span>
-            <span>{Math.round(cart.subtotal)}</span>
+            <span>{Math.round(summary.cart.subtotal)}</span>
           </div>
         </div>
       )}
-      {welcomeDone && !breakActive && (
+      {/* Order completed overlay - hides chat and shows order with cancel/new buttons */}
+      {summary && welcomeDone && summary.kind === 'order' && summary.order && (
+        <div style={{ position: 'absolute', inset: 0, zIndex: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.7)' }}>
+          <div style={{ width: 360, maxHeight: '80vh', overflowY: 'auto', background: 'linear-gradient(135deg, rgba(106, 213, 139, 0.2) 0%, rgba(20, 20, 30, 0.95) 100%)', backdropFilter: 'blur(12px)', color: '#fff', borderRadius: 16, padding: 24, boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(106, 213, 139, 0.3)', border: '1px solid rgba(106, 213, 139, 0.4)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, paddingBottom: 14, borderBottom: '1px solid rgba(106, 213, 139, 0.3)' }}>
+              <div style={{ fontSize: 28, filter: 'drop-shadow(0 2px 6px rgba(106, 213, 139, 0.6))' }}>✅</div>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 20, color: '#6AD58B' }}>Order Confirmed!</div>
+                <div style={{ fontSize: 13, opacity: 0.8, marginTop: 4 }}>Order #{summary.order.id}</div>
+              </div>
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', fontSize: 14 }}>
+                <span style={{ opacity: 0.8 }}>Customer</span>
+                <span style={{ fontWeight: 600 }}>{summary.order.customer_name}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', fontSize: 14, borderBottom: '1px solid rgba(106, 213, 139, 0.2)' }}>
+                <span style={{ opacity: 0.8 }}>Status</span>
+                <span style={{ fontWeight: 600, color: summary.order.status === 'done' ? '#6AD58B' : '#B39DFF', textTransform: 'capitalize' }}>{summary.order.status}</span>
+              </div>
+            </div>
+            <div style={{ marginTop: 16, marginBottom: 14 }}>
+              <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 12, opacity: 0.9 }}>Items</div>
+              {summary.order.items.map((it, idx) => (
+                <div key={`${it.code}-${it.name}-${idx}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, padding: '10px 12px', background: 'rgba(255, 255, 255, 0.05)', borderRadius: 8 }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 600, fontSize: 14 }}>{it.name}</div>
+                    <div style={{ fontSize: 12, opacity: 0.6, marginTop: 2 }}>Qty: {it.qty} × ${it.price.toFixed(2)}</div>
+                  </div>
+                  <div style={{ fontWeight: 700, fontSize: 15, color: '#6AD58B' }}>${it.amount.toFixed(2)}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ borderTop: '1px solid rgba(106, 213, 139, 0.3)', marginTop: 14, paddingTop: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontWeight: 700, fontSize: 17 }}>Total</span>
+              <span style={{ fontWeight: 700, fontSize: 22, color: '#6AD58B' }}>${summary.order.total.toFixed(2)}</span>
+            </div>
+            {summary.order.created_at && (
+              <div style={{ marginTop: 16, fontSize: 12, opacity: 0.7, textAlign: 'center' }}>
+                Placed: {new Date(summary.order.created_at).toLocaleString()}
+              </div>
+            )}
+            <div style={{ marginTop: 24, display: 'flex', gap: 12 }}>
+              <button
+                onClick={() => {
+                  console.log('[Order] Cancel button clicked - API call placeholder')
+                  // TODO: Implement cancel order API call
+                  alert('Cancel order functionality will be implemented with backend endpoint')
+                }}
+                style={{ flex: 1, backgroundColor: 'rgba(255, 107, 107, 0.2)', border: '1px solid rgba(255, 107, 107, 0.5)', padding: '12px', borderRadius: 10, color: '#ff6b6b', fontWeight: 600, cursor: 'pointer', fontSize: 14, transition: 'all 0.2s ease' }}
+                onMouseOver={(e) => { e.currentTarget.style.backgroundColor = 'rgba(255, 107, 107, 0.3)'; e.currentTarget.style.transform = 'translateY(-2px)' }}
+                onMouseOut={(e) => { e.currentTarget.style.backgroundColor = 'rgba(255, 107, 107, 0.2)'; e.currentTarget.style.transform = 'translateY(0)' }}
+              >
+                Cancel Order
+              </button>
+              <button
+                onClick={() => {
+                  console.log('[Order] New Order button clicked')
+                  try { localStorage.removeItem('sofia_session_id') } catch {}
+                  setSessionId(null)
+                  setChatMessages([])
+                  setSummary(null)
+                  window.location.reload()
+                }}
+                style={{ flex: 1, backgroundColor: '#6AD58B', border: 'none', padding: '12px', borderRadius: 10, color: '#0b2d17', fontWeight: 700, cursor: 'pointer', fontSize: 14, transition: 'all 0.2s ease', boxShadow: '0 2px 8px rgba(106, 213, 139, 0.4)' }}
+                onMouseOver={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
+                onMouseOut={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+              >
+                New Order
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {welcomeDone && !breakActive && summary?.kind !== 'order' && (
         <>
           {/* Voice controls: select voice and toggle local TTS test mode */}
           <div style={{ position: 'absolute', top: 16, right: 16, zIndex: 20, background: 'rgba(0,0,0,0.5)', padding: '8px 12px', borderRadius: 8 }}>
