@@ -58,6 +58,16 @@ export default function App() {
   const isSpeakingRef = useRef(false) // Track if assistant is speaking
   // Removed speech timeout scheduling (no frontend phoneme timeline).
 
+  // Clear any stored session data on fresh app start
+  useEffect(() => {
+    try {
+      localStorage.removeItem('sofia_session_id')
+      console.log('[Session] Cleared stored session data for fresh start')
+    } catch (err) {
+      console.warn('[Session] Failed to clear session data:', err)
+    }
+  }, [])
+
   // Cart fetching based on session id
   const fetchCart = useCallback(async (sid?: string | null) => {
     const effectiveSession = typeof sid === 'string' ? sid : sessionId
@@ -460,7 +470,7 @@ export default function App() {
         body: JSON.stringify({
           user_id: getOrCreateUserId(),
           text,
-          restart: !!opts?.restart,
+          restart: !!opts?.restart || !sessionId, // Force restart if no session ID
           session_id: opts?.restart ? null : sessionId,
           speak: true,
           voice: 'en-US-JennyNeural',
