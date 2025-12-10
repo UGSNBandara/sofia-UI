@@ -43,6 +43,7 @@ export default function App() {
     cart?: { items: Array<{ code: number; name: string; qty: number; price: number; amount: number }>; subtotal: number }; 
     order?: { id: string; customer_name: string; items: Array<{ code: number; name: string; qty: number; price: number; amount: number }>; total: number; status: string; created_at: string } 
   } | null>(null)
+  const [facialDataCaptured, setFacialDataCaptured] = useState(false)
   const [localTtsOnly, setLocalTtsOnly] = useState(false)
   // Web Speech voices for browser TTS
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([])
@@ -66,6 +67,7 @@ export default function App() {
   useEffect(() => {
     try {
       localStorage.removeItem('sofia_session_id')
+      localStorage.removeItem('sofia_facial_captured')
       console.log('[Session] Cleared stored session data for fresh start')
     } catch (err) {
       console.warn('[Session] Failed to clear session data:', err)
@@ -104,6 +106,72 @@ export default function App() {
       console.warn('[Summary] Fetch failed:', err)
     }
   }, [sessionId])
+
+  // Capture facial data (age/gender) and send to backend - runs once per session
+  const captureAndSendFacialData = useCallback(async (sid: string) => {
+    // Double check if already done for this session
+    if (localStorage.getItem('sofia_facial_captured') === sid) {
+      setFacialDataCaptured(true)
+      return
+    }
+
+    try {
+      console.log('[Facial] Capturing age/gender...')
+      // 1. Capture from local service
+      const captureResp = await fetch("http://localhost:8001/capture-age-gender", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          session_id: sid,
+          user_id: null, 
+        }),
+      })
+      
+      if (!captureResp.ok) throw new Error('Capture failed')
+      const captureData = await captureResp.json()
+      console.log('[Facial] Captured:', captureData)
+
+      // 2. Send to Backend
+      const base = ((import.meta as any)?.env?.VITE_AGENT_BASE) || (AGENT_ENDPOINT.replace(/\/agent\/?$/, ''))
+      const url = `${base.replace(/\/?$/, '')}/session/${sid}/facial`
+      
+      const payload = {
+        emotion: "happy", // Hardcoded for now
+        confidence: 0.85,
+        age_group: captureData.age_group, // "child" | "teen" | "adult" | "senior"
+        gender_guess: captureData.gender // "male" | "female"
+      }
+
+      console.log('[Facial] Sending to backend:', url, payload)
+      const sendResp = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+
+      if (!sendResp.ok) throw new Error('Send facial data failed')
+      const sendData = await sendResp.json()
+      console.log('[Facial] Backend response:', sendData)
+
+      // Mark as done
+      localStorage.setItem('sofia_facial_captured', sid)
+      setFacialDataCaptured(true)
+
+    } catch (err) {
+      console.warn('[Facial] Error:', err)
+    }
+  }, [])
+
+  // Trigger facial capture when session starts
+  useEffect(() => {
+    if (sessionId && !facialDataCaptured) {
+       if (localStorage.getItem('sofia_facial_captured') === sessionId) {
+         setFacialDataCaptured(true)
+       } else {
+         void captureAndSendFacialData(sessionId)
+       }
+    }
+  }, [sessionId, facialDataCaptured, captureAndSendFacialData])
 
   // Refresh summary whenever sessionId changes (and exists)
   useEffect(() => {
@@ -591,8 +659,12 @@ export default function App() {
     setFreezeBody(true) // keep idle pose static; only mouth moves
     fadeBgm(0.1, 1500)
     // restart session
-    try { localStorage.removeItem('sofia_session_id') } catch {}
+    try { 
+      localStorage.removeItem('sofia_session_id') 
+      localStorage.removeItem('sofia_facial_captured')
+    } catch {}
     setSessionId(null)
+    setFacialDataCaptured(false)
     // Play welcome mp3 with lip sync, then show UI
     setIsSpeaking(true)
     setMouthOpen(0.5)
@@ -607,8 +679,12 @@ export default function App() {
     if (inactivityTimeoutRef.current) { window.clearTimeout(inactivityTimeoutRef.current); inactivityTimeoutRef.current = null }
     try { stopSpeaking() } catch {}
     if (opts?.newSession) {
-      try { localStorage.removeItem('sofia_session_id') } catch {}
+      try { 
+        localStorage.removeItem('sofia_session_id') 
+        localStorage.removeItem('sofia_facial_captured')
+      } catch {}
       setSessionId(null)
+      setFacialDataCaptured(false)
       setChatMessages([])
     }
     // Play Bow once, freeze immediately at start
@@ -737,8 +813,12 @@ export default function App() {
               <button
                 onClick={() => {
                   console.log('[Order] New Order button clicked')
-                  try { localStorage.removeItem('sofia_session_id') } catch {}
+                  try { 
+                    localStorage.removeItem('sofia_session_id') 
+                    localStorage.removeItem('sofia_facial_captured')
+                  } catch {}
                   setSessionId(null)
+                  setFacialDataCaptured(false)
                   setChatMessages([])
                   setSummary(null)
                   window.location.reload()
