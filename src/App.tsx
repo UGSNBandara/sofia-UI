@@ -5,6 +5,7 @@ import AvatarModel from './components/AvatarModel'
 import BackLogo from './components/BackLogo'
 import ChatPanel, { type ChatMessage } from './components/ChatPanel'
 import SpeechInput from './components/SpeechInput'
+import Snowfall from 'react-snowfall'
 // Frontend TTS removed; relying solely on backend audio_base64
 
 const ANIMATIONS = [
@@ -738,6 +739,8 @@ export default function App() {
           />
         </Suspense>
       </Canvas>
+      {/* Snow effect */}
+      <Snowfall color="white" snowflakeCount={100} />
       {/* Cart UI overlay - positioned above chat with matching width and gap */}
       {summary && welcomeDone && summary.kind === 'cart' && summary.cart && summary.cart.items.length > 0 && (
         <div style={{ 
