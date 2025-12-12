@@ -738,6 +738,24 @@ export default function App() {
       </Canvas>
       {/* Snow effect */}
       <Snowfall color="white" snowflakeCount={100} />
+      {/* Start Background Music Button */}
+      <button 
+        onClick={() => { if (bgmRef.current) bgmRef.current.play().catch(() => {}) }}
+        style={{ 
+          position: 'absolute', 
+          top: 10, 
+          right: 10, 
+          zIndex: 1000, 
+          padding: '8px 12px', 
+          background: 'rgba(0,0,0,0.7)', 
+          color: 'white', 
+          border: '1px solid #ccc', 
+          borderRadius: '4px', 
+          cursor: 'pointer' 
+        }}
+      >
+        🎵 Start Music
+      </button>
       {/* Cart UI overlay - positioned above chat with matching width and gap */}
       {summary && welcomeDone && summary.kind === 'cart' && summary.cart && summary.cart.items.length > 0 && (
         <div style={{ 
@@ -836,7 +854,7 @@ export default function App() {
       {welcomeDone && !breakActive && summary?.kind !== 'order' && (
         <>
           {/* Voice controls: select voice and toggle local TTS test mode */}
-          <div style={{ position: 'absolute', top: 16, right: 16, zIndex: 20, background: 'rgba(0,0,0,0.5)', padding: '8px 12px', borderRadius: 8 }}>
+          <div style={{ position: 'absolute', top: 16, right: 16, zIndex: 20, background: 'rgba(0,0,0,0.5)', padding: '8px 12px', borderRadius: 8, display: 'none' }}>
             <label style={{ color: '#fff', marginRight: 8 }}>Voice:</label>
             <select
               value={preferredVoiceName || ''}
