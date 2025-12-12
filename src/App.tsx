@@ -49,7 +49,7 @@ export default function App() {
   // Web Speech voices for browser TTS
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([])
   const webSpeechUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null)
-  const [preferredVoiceName, setPreferredVoiceName] = useState<string | null>('Microsoft Emily Online (Natural) - English (Ireland)')
+  const [preferredVoiceName, setPreferredVoiceName] = useState<string | null>('Microsoft Zira - English (United States)')
 
   const pendingAudioRef = useRef<HTMLAudioElement | null>(null)
   const base64ResolveRef = useRef<(() => void) | null>(null)
