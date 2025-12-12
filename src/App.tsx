@@ -108,14 +108,8 @@ export default function App() {
     }
   }, [sessionId])
 
-  // Capture facial data (age/gender) and send to backend - runs once per session
+  // Capture facial data (age/gender) and send to backend
   const captureAndSendFacialData = useCallback(async (sid: string) => {
-    // Double check if already done for this session
-    if (localStorage.getItem('sofia_facial_captured') === sid) {
-      setFacialDataCaptured(true)
-      return
-    }
-
     try {
       console.log('[Facial] Capturing age/gender...')
       // 1. Capture from local service
@@ -137,8 +131,7 @@ export default function App() {
       const url = `${base.replace(/\/?$/, '')}/session/${sid}/facial`
       
       const payload = {
-        emotion: "happy", // Hardcoded for now
-        confidence: 0.85,
+        emotion: captureData.mood || "neutral", 
         age_group: captureData.age_group, // "child" | "teen" | "adult" | "senior"
         gender_guess: captureData.gender // "male" | "female"
       }
@@ -579,6 +572,10 @@ export default function App() {
     if (!trimmed) return
     setChatDraft('')
     appendMessage({ id: `u-${Date.now()}`, role: 'user', text: trimmed })
+    
+    // Update facial data context for this turn
+    if (sessionId) void captureAndSendFacialData(sessionId)
+
     // User input received: stop timer and exit Break if active
     console.log('[Timer] User input received, clearing timer')
     stopInactivityTimer()
@@ -604,7 +601,7 @@ export default function App() {
     } finally {
       setIsProcessing(false)
     }
-  }, [appendMessage, fetchAgentResponse, playAssistantAudio, localTtsOnly, resetInactivityTimer, breakActive])
+  }, [appendMessage, fetchAgentResponse, playAssistantAudio, localTtsOnly, resetInactivityTimer, breakActive, sessionId, captureAndSendFacialData])
 
   const handleTranscript = useCallback(
     (transcript: string) => {
