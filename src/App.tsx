@@ -130,11 +130,15 @@ export default function App() {
       const base = ((import.meta as any)?.env?.VITE_AGENT_BASE) || (AGENT_ENDPOINT.replace(/\/agent\/?$/, ''))
       const url = `${base.replace(/\/?$/, '')}/session/${sid}/facial`
       
+      const colomboHour = parseInt(new Date().toLocaleString('en-US', { timeZone: 'Asia/Colombo', hour: 'numeric', hour12: false }))
+      const timeOfDay = colomboHour < 12 ? 'morning' : (colomboHour < 18 ? 'afternoon' : 'evening')
+
       const payload = {
         emotion: captureData.mood || "neutral", 
         age_group: captureData.age_group, // "child" | "teen" | "adult" | "senior"
         gender_guess: captureData.gender, // "male" | "female"
-        client_timestamp: new Date().toLocaleString('en-US', { timeZone: 'Asia/Colombo' })
+        client_timestamp: new Date().toLocaleString('en-US', { timeZone: 'Asia/Colombo', hour12: false }),
+        time_of_day: timeOfDay
       }
 
       console.log('[Facial] Sending to backend:', url, payload)
@@ -540,6 +544,11 @@ export default function App() {
   const fetchAgentResponse = useCallback(async (text: string, opts?: { restart?: boolean, mode?: 'text-only' | 'tts' }) => {
     try {
       const endpoint = opts?.mode === 'text-only' ? AGENT_TEXT_ENDPOINT : AGENT_ENDPOINT
+      // Calculate Colombo time and time of day
+      const colomboDate = new Date().toLocaleString('en-US', { timeZone: 'Asia/Colombo', hour12: false })
+      const colomboHour = parseInt(new Date().toLocaleString('en-US', { timeZone: 'Asia/Colombo', hour: 'numeric', hour12: false }))
+      const timeOfDay = colomboHour < 12 ? 'morning' : (colomboHour < 18 ? 'afternoon' : 'evening')
+
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -550,7 +559,8 @@ export default function App() {
           session_id: opts?.restart ? null : sessionId,
           speak: true,
           voice: 'en-US-JennyNeural',
-          client_timestamp: new Date().toLocaleString('en-US', { timeZone: 'Asia/Colombo' }),
+          client_timestamp: colomboDate,
+          time_of_day: timeOfDay,
         }),
       })
       if (!response.ok) throw new Error('Agent request failed')
