@@ -133,7 +133,8 @@ export default function App() {
       const payload = {
         emotion: captureData.mood || "neutral", 
         age_group: captureData.age_group, // "child" | "teen" | "adult" | "senior"
-        gender_guess: captureData.gender // "male" | "female"
+        gender_guess: captureData.gender, // "male" | "female"
+        client_timestamp: new Date().toLocaleString('en-US', { timeZone: 'Asia/Colombo' })
       }
 
       console.log('[Facial] Sending to backend:', url, payload)
@@ -549,6 +550,7 @@ export default function App() {
           session_id: opts?.restart ? null : sessionId,
           speak: true,
           voice: 'en-US-JennyNeural',
+          client_timestamp: new Date().toLocaleString('en-US', { timeZone: 'Asia/Colombo' }),
         }),
       })
       if (!response.ok) throw new Error('Agent request failed')
